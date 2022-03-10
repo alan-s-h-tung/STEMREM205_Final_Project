@@ -1,0 +1,1093 @@
+---
+title: "STEMREM_final_project_notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Acquiring the data
+```{r}
+#install packages required
+install.packages('Seurat')
+install.packages("hdf5r")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("GEOquery")
+```
+
+
+```{r}
+#load libraries
+library(Seurat)
+library(hdf5r)
+library(GEOquery)
+library(ggplot2)
+library(RColorBrewer)
+library(edgeR)
+library(limma)
+library(Glimma)
+library(tidyr)
+library(ggpubr)
+library(gplots)
+library(pheatmap)
+library(SingleCellExperiment)
+library(Seurat)
+library(tidyverse)
+library(Matrix)
+library(scales)
+library(cowplot)
+library(RCurl)
+library(ggfortify)
+
+#set working directory
+setwd("/Users/celestediaz/Desktop/scRNA")
+
+#open data files
+#load series matrix file and view
+# gse=getGEO(filename="GSE84445_series_matrix.txt.gz")
+
+#load SOFT data file and view 
+# gds <- getGEO(filename = "GSE132901_family.soft.gz")
+
+# Meta(gds)$title
+
+# Meta(gds)$type
+
+```
+
+```{r}
+#set working directory
+setwd("/Users/celestediaz/Desktop/scRNA")
+
+#load aging kidney datasets
+young_kidney_1_a <- Read10X_h5("Y1KA_filtered_feature_bc_matrix.h5")
+young_kidney_1_b <- Read10X_h5("Y1KB_filtered_feature_bc_matrix.h5")
+  
+young_kidney_2_a <- Read10X_h5("Y2KA_filtered_feature_bc_matrix.h5")
+young_kidney_2_b <- Read10X_h5("Y2KB_filtered_feature_bc_matrix.h5")
+  
+young_kidney_3_a <- Read10X_h5("Y3KA_filtered_feature_bc_matrix.h5")
+young_kidney_3_b <- Read10X_h5("Y3KB_filtered_feature_bc_matrix.h5") 
+  
+young_kidney_4_a <- Read10X_h5("Y4KA_filtered_feature_bc_matrix.h5") 
+young_kidney_4_b <- Read10X_h5("Y4KB_filtered_feature_bc_matrix.h5")
+  
+old_kidney_1_a <- Read10X_h5("O1KA_filtered_feature_bc_matrix.h5") 
+old_kidney_1_b <- Read10X_h5("O1KB_filtered_feature_bc_matrix.h5")
+   
+old_kidney_2_a <- Read10X_h5("O2KA_filtered_feature_bc_matrix.h5")
+old_kidney_2_b <- Read10X_h5("O2KB_filtered_feature_bc_matrix.h5") 
+  
+old_kidney_3 <- Read10X_h5("O3KA_filtered_feature_bc_matrix.h5")
+```
+
+
+```{r}
+#set working directory
+setwd("/Users/celestediaz/Desktop/scRNA")
+
+# Create each individual Seurat object for every sample
+for (file in c("Y1KA_filtered_feature_bc_matrix.h5", "Y1KB_filtered_feature_bc_matrix.h5","Y2KA_filtered_feature_bc_matrix.h5","Y2KB_filtered_feature_bc_matrix.h5","Y3KA_filtered_feature_bc_matrix.h5","Y3KB_filtered_feature_bc_matrix.h5","Y4KA_filtered_feature_bc_matrix.h5","Y4KB_filtered_feature_bc_matrix.h5","O1KA_filtered_feature_bc_matrix.h5","O1KB_filtered_feature_bc_matrix.h5","O2KA_filtered_feature_bc_matrix.h5", "O2KB_filtered_feature_bc_matrix.h5","O3KA_filtered_feature_bc_matrix.h5")){
+        seurat_data <- Read10X_h5(file)
+        seurat_obj <- CreateSeuratObject(counts = seurat_data,
+                                         min.features = 100,
+                                         project = file)
+        assign(file, seurat_obj)
+}
+```
+
+
+```{r}
+#look at metadata of one of the files
+head(Y1KA_filtered_feature_bc_matrix@meta.data)
+#view the summary of one of the files
+summary(Y1KA_filtered_feature_bc_matrix.h5)
+#look at the first few columns and rows of one of the files
+head(Y1KA_filtered_feature_bc_matrix.h5)
+```
+
+
+```{r}
+#merge the seurat objects into one file
+merged_seurat <- merge(Y1KA_filtered_feature_bc_matrix.h5, 
+                       y = c(Y1KB_filtered_feature_bc_matrix.h5, Y2KA_filtered_feature_bc_matrix.h5, Y2KB_filtered_feature_bc_matrix.h5, Y3KA_filtered_feature_bc_matrix.h5, Y3KB_filtered_feature_bc_matrix.h5,
+                            Y4KA_filtered_feature_bc_matrix.h5,
+                            Y4KB_filtered_feature_bc_matrix.h5,
+                            O1KA_filtered_feature_bc_matrix.h5, O2KA_filtered_feature_bc_matrix.h5, O2KB_filtered_feature_bc_matrix.h5, O3KA_filtered_feature_bc_matrix.h5),
+
+#add a cell ID to each associated file                            
+                       add.cell.id = c("Young1A", "Young1B" , "Young2A", "Young2B", "Young3A", "Young3B", "Young4A", "Young4B", "Old1A", "Old2A", "Old2B", "Old3A"))
+
+# Explore merged metadata
+View(merged_seurat@meta.data)
+#look at tail of merged seurat data
+tail(merged_seurat@meta.data)
+```
+
+
+```{r}
+#load libraries
+library(SingleCellExperiment)
+library(Seurat)
+library(tidyverse)
+library(Matrix)
+library(scales)
+library(cowplot)
+library(RCurl)
+```
+```{r}
+# Add number of genes per UMI for each cell to metadata
+merged_seurat$log10GenesPerUMI <- log10(merged_seurat$nFeature_RNA) / log10(merged_seurat$nCount_RNA)
+```
+
+```{r}
+# Compute percent mito ratio
+merged_seurat$mitoRatio <- PercentageFeatureSet(object = merged_seurat, pattern = "^mt-")
+merged_seurat$mitoRatio <- merged_seurat@meta.data$mitoRatio / 100
+```
+
+```{r}
+# Create metadata dataframe
+metadata <- merged_seurat@meta.data
+```
+
+```{r}
+# Add cell IDs to metadata
+metadata$cells <- rownames(metadata)
+
+# Rename columns
+metadata <- metadata %>%
+        dplyr::rename(seq_folder = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+```
+
+```{r}
+# Create sample column
+metadata$sample <- NA 
+for (i in c("Young1A", "Young1B", "Young2A", "Young2B", "Young3A", "Young3B", "Young4A", "Young4B", "Old1A", "Old2A", "Old2B", "Old3A")){
+  metadata$sample[which(str_detect(metadata$cells, paste0(i)))] <- paste0(i)
+}
+  
+```
+
+```{r}
+# Add metadata back to Seurat object
+merged_seurat@meta.data <- metadata
+                           
+# Create .RData object to load at any time
+save(merged_seurat, file="data/merged_filtered_seurat.RData")
+```
+
+
+
+```{r}
+# Visualize the number of cell counts per sample
+#check to see if cell counts are within expected range for each of the samples
+metadata %>% 
+  	ggplot(aes(x=sample, fill=sample)) + 
+  	geom_bar() +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells")
+```
+
+```{r}
+# Visualize the number UMIs/transcripts per cell
+#the lowest acceptable ranges are usually 500-1000, or may need to go back and sequence more deeply
+metadata %>% 
+  	ggplot(aes(color=sample, x=nUMI, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+  	geom_vline(xintercept = 500)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram
+#
+metadata %>% 
+  	ggplot(aes(color=sample, x=nGene, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	theme_classic() +
+  	scale_x_log10() + 
+  	geom_vline(xintercept = 250)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via boxplot
+#look at distribution to check for normalization of the data
+metadata %>% 
+  	ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
+  	geom_boxplot() + 
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells vs NGenes")
+
+```
+
+```{r}
+#number of genes vs number of UMIs by fraction of mitochondrial reads
+#poor quality genes will have low reads and low UMIs per cell
+#cells seen in lower right quadrant are cells with high UMIs, but low number of genes. This indicates dying cells, or low comlexity cells (such as blood cells)
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metadata %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point(size = 0.5) + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 1000) +
+  	geom_hline(yintercept = 250) +
+    facet_wrap(~sample)
+```
+
+```{r}
+# Visualize the distribution of mitochondrial gene expression detected per cell
+#poor quality samples >0.2 (unless expecting a lot of dying cells)
+metadata %>% 
+  	ggplot(aes(color=sample, x=mitoRatio, fill=sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 0.2)
+```
+
+```{r}
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+# Expect score to be >0.80
+#outlier cells are those that may be less complex RNA species (like blood cells)
+metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = sample, fill=sample)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = 0.8)
+```
+
+```{r}
+# Filter out low quality reads using selected thresholds
+filtered_seurat <- subset(x = merged_seurat, 
+                         subset= (nUMI >= 500) & 
+                           (nGene >= 250) & 
+                           (log10GenesPerUMI > 0.80) & 
+                           (mitoRatio < 0.20))
+head(filtered_seurat)
+```
+
+```{r}
+# Gene level filtering
+# Keep only genes which are expressed in 10 or more cells and remove genes with zero counts to avoid skewing the average expression
+
+# Output a logical vector for every gene on whether the more than zero counts per cell
+# Extract counts
+counts <- GetAssayData(object = filtered_seurat, slot = "counts")
+
+# Output a logical vector for every gene on whether the more than zero counts per cell
+nonzero <- counts > 0
+
+# Sums all TRUE values and returns TRUE if more than 10 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 10
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+
+# Reassign to filtered Seurat object
+filtered_seurat <- CreateSeuratObject(filtered_counts, meta.data = filtered_seurat@meta.data)
+
+head(filtered_seurat)
+```
+
+```{r}
+# Save filtered subset to new metadata
+metadata_clean <- filtered_seurat@meta.data
+```
+
+```{r}
+# Create sample column in metadata_clean
+metadata_clean$sample <- NA 
+for (i in c("Young1A", "Young1B", "Young2A", "Young2B", "Young3A", "Young3B", "Young4A", "Young4B", "Old1A", "Old2A", "Old2B", "Old3A")){
+  metadata_clean$sample[which(str_detect(metadata_clean$cells, paste0(i)))] <- paste0(i)
+}
+```
+
+```{r}
+# Visualize the number of cell counts per sample in metadata_clean to ensure cutoffs look good
+metadata_clean %>% 
+  	ggplot(aes(x=sample, fill=sample)) + 
+  	geom_bar() +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells_clean")
+```
+
+```{r}
+# Visualize the number UMIs/transcripts per cell in metadata_clean to ensure cutoffs look good
+#the lowest acceptable ranges are usually 500-1000, or may need to go back and sequence more deeply
+metadata_clean %>% 
+  	ggplot(aes(color=sample, x=nUMI, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+  	geom_vline(xintercept = 500)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram in metadata_clean to ensure cutoffs look good
+#
+metadata_clean %>% 
+  	ggplot(aes(color=sample, x=nGene, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	theme_classic() +
+  	scale_x_log10() + 
+  	geom_vline(xintercept = 250)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via boxplot in metadata_clean to ensure cutoffs look good
+#look at distribution to check for normalization of the data
+metadata_clean %>% 
+  	ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
+  	geom_boxplot() + 
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells vs NGenes")
+```
+
+```{r}
+#number of genes vs number of UMIs by fraction of mitochondrial reads in metadata_clean to ensure cutoffs look good
+
+metadata_clean %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point(size = 0.5) + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 1000) +
+  	geom_hline(yintercept = 250) +
+    facet_wrap(~sample)
+```
+
+```{r}
+# Visualize the distribution of mitochondrial gene expression detected per cell in metadata_clean to ensure cutoffs look good
+metadata_clean %>% 
+  	ggplot(aes(color=sample, x=mitoRatio, fill=sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 0.2)
+```
+
+```{r}
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI in metadata_clean to ensure cutoffs look good
+
+metadata_clean %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = sample, fill=sample)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = 0.8)
+```
+
+```{r}
+# Create .RData object to load at any time
+save(filtered_seurat, file="data/seurat_filtered.RData")
+```
+
+```{r}
+# Count normalize to compare gene expression between cells
+# Take into consideration sequencing depth for normalization
+class(metadata_clean$orig.ident)
+```
+
+```{r}
+#PCA analysis
+
+#normalize the filtered seurat dataset for sequencing depth
+filtered_seurat <- NormalizeData(filtered_seurat)
+
+# Look for features that are variable
+filtered_seurat <- FindVariableFeatures(filtered_seurat, selection.method = "vst", nfeatures = 2000)
+
+# scale the data
+filtered_seurat <- ScaleData(filtered_seurat, vars.to.regress = "mitoRatio")
+
+# run PCA
+filtered_seurat <- RunPCA(filtered_seurat, npc=30, reduction.name='pca.30')
+
+# plot PCA
+data("filtered_seurat")
+FeatureScatter(
+  object = filtered_seurat,
+  feature1 = "PC_1",
+  feature2 = "PC_2",
+  cells = NULL,
+  shuffle = FALSE,
+  seed = 1,
+  group.by = NULL,
+  cols = NULL,
+  pt.size = 1,
+  shape.by = NULL,
+  span = NULL,
+  smooth = FALSE,
+  combine = TRUE,
+  slot = "data",
+  plot.cor = TRUE,
+  raster = NULL,
+  raster.dpi = c(512, 512),
+  jitter = TRUE
+)
+```
+```{r}
+# Run PCA
+filtered_seurat <- RunPCA(object = filtered_seurat)
+
+# Plot PCA
+PCAPlot(filtered_seurat,
+        split.by = "sample",
+        ncol = 4, 
+        reduction = "umap.30") 
+```
+
+
+```{r}
+#UMAP analysis 
+
+#runUMAP 
+filtered_seurat <- RunUMAP(filtered_seurat, dims = 1:30, reduction = "pca.30", reduction.name='umap.30')
+#plot UMAP
+DimPlot(filtered_seurat, reduction = "umap.30")
+```
+
+
+```{r}
+#plot UMAP for each
+p1 <- DimPlot(filtered_seurat, split.by = "orig.ident", ncol = 4, reduction = "umap.30")
+p1
+```
+
+
+```{r}
+# Create sample column in filtered_seurat
+filtered_seurat$sample <- NA 
+for (i in c("Young1A", "Young1B", "Young2A", "Young2B", "Young3A", "Young3B", "Young4A", "Young4B", "Old1A", "Old2A", "Old2B", "Old3A")){
+  filtered_seurat$sample[which(str_detect(filtered_seurat$cells, paste0(i)))] <- paste0(i)
+}
+```
+
+```{r}
+# Exploring more QC methods
+# Distribution of cells per sample
+
+# Extract identity and sample information from seurat object to determine the number of cells per cluster per sample
+n_cells <- FetchData(seurat_integrated, 
+                     vars = c("ident", "orig.ident")) %>%
+        dplyr::count(ident, orig.ident) %>%
+        tidyr::spread(ident, n)
+
+# View table
+View(n_cells)
+```
+
+```{r}
+# UMAP of cells in each cluster by sample
+DimPlot(seurat_integrated, 
+        label = TRUE, 
+        split.by = "sample")  + NoLegend()
+```
+
+
+```{r}
+# Assess cell cycle variation
+cc_file <- getURL("https://raw.githubusercontent.com/hbc/tinyatlas/master/cell_cycle/Mus_musculus.csv") 
+cell_cycle_genes <- read.csv(text = cc_file)
+
+# Connect to AnnotationHub
+library(AnnotationHub)
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Mus Musculus", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+```
+
+
+```{r}
+# Perform cell cycle scoring
+seurat_control <- CellCycleScoring(filtered_seurat,
+                                   g2m.features = g2m_genes,
+                                   s.features = s_genes)
+
+# Perform PCA and color by cell cycle phase
+seurat_control <- RunPCA(seurat_control)
+
+# Visualize the PCA, grouping by cell cycle phase
+DimPlot(seurat_control,
+        reduction = "pca",
+        group.by= "Phase")
+```
+
+
+```{r}
+# Plot the PCA colored by cell cycle phase
+DimPlot(seurat_control,
+        reduction = "pca",
+        group.by= "Phase",
+        split.by = "Phase")
+```
+
+
+```{r}
+# Score cells for cell cycle
+filtered_seurat <- CellCycleScoring(filtered_seurat, 
+                                 g2m.features = g2m_genes, 
+                                 s.features = s_genes)
+
+# View cell cycle scores and phases assigned to cells                                 
+View(filtered_seurat@meta.data)                  
+```
+
+```{r}
+# Segregation of clusters by other methods
+
+# Determine metrics to plot present in seurat_integrated@meta.data
+metrics <-  c("nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio")
+
+FeaturePlot(seurat_integrated, 
+            reduction = "umap", 
+            features = metrics,
+            pt.size = 0.4, 
+            sort.cell = TRUE,
+            min.cutoff = 'q10',
+            label = TRUE)
+
+# mitoRatio may need to be adjusted based off of this
+```
+
+```{r}
+#adjust limits for allowable object size (for memory reasons)
+options(future.globals.maxSize = 4000 * 1024^2)
+```
+
+```{r}
+# Create sample column in filtered_seurat by age "Young" and "Old"
+filtered_seurat$sample <- NA 
+for (i in c("Young", "Young", "Young", "Young", "Young", "Young", "Young", "Young", "Old", "Old", "Old", "Old")){
+  filtered_seurat$sample[which(str_detect(filtered_seurat$cells, paste0(i)))] <- paste0(i)
+}
+
+# Split seurat object by condition to perform cell cycle scoring and SCT on all samples
+split_seurat <- SplitObject(filtered_seurat, split.by = "sample")
+
+split_seurat <- split_seurat[c("Young", "Old")]
+
+for (i in 1:length(split_seurat)) {
+    split_seurat[[i]] <- NormalizeData(split_seurat[[i]], verbose = TRUE)
+    split_seurat[[i]] <- CellCycleScoring(split_seurat[[i]], g2m.features=g2m_genes, s.features=s_genes)
+    split_seurat[[i]] <- SCTransform(split_seurat[[i]], vars.to.regress = c("mitoRatio"))
+    }
+
+```
+
+
+```{r}
+#integrate the datasets to compare
+
+# Select the most variable features to use for integration (integrating by age)
+integ_features <- SelectIntegrationFeatures(object.list = split_seurat, 
+                                            nfeatures = 3000) 
+# Prepare the SCT list object for integration
+split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
+                                   anchor.features = integ_features)
+# Find best buddies - can take a while to run
+integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
+                                        normalization.method = "SCT", 
+                                        anchor.features = integ_features)
+# Integrate across conditions
+seurat_integrated <- IntegrateData(anchorset = integ_anchors, 
+                                   normalization.method = "SCT")
+# Save integrated seurat object
+saveRDS(seurat_integrated, "results/integrated_seurat.rds")
+```
+
+```{r}
+#run PCA from integrated dataset of young and old
+seurat_integrated <- RunPCA(object = seurat_integrated)
+
+# Plot PCA
+PCAPlot(seurat_integrated,
+        split.by = "sample") 
+```
+
+```{r}
+# Run UMAP for integrated dataset of young and old
+seurat_integrated <- RunUMAP(seurat_integrated, 
+                             dims = 1:40,
+			     reduction = "pca")
+
+# Plot UMAP                             
+DimPlot(seurat_integrated) 
+```
+
+```{r}
+DimPlot(seurat_integrated,
+        split.by = "sample")  
+```
+```{r}
+# Segregation of cell clusters by cell cycle phase
+
+# Explore whether clusters segregate by cell cycle phase
+DimPlot(seurat_integrated,
+        label = TRUE, 
+        split.by = "Phase")  + NoLegend()
+```
+
+```{r}
+#identify significant PCs (metagenes)
+# Explore heatmap of PCs
+DimHeatmap(seurat_integrated, 
+           dims = 1:9, 
+           cells = 500, 
+           balanced = TRUE)
+```
+
+```{r}
+# Printing out the most variable genes driving PCs to see top 10 genes
+print(x = seurat_integrated[["pca"]], 
+      dims = 1:10, 
+      nfeatures = 5)
+```
+
+```{r}
+# Plot the elbow plot to look at standard deviation of each PC to determine how many PCs to use for clustering (where it begins to plateu)
+# Where the elbow appears is usually the threshold for identifying the majority of the variation
+ElbowPlot(object = seurat_integrated, 
+          ndims = 40)
+```
+```{r}
+# Adding cluster label to center of cluster on UMAP
+umap_label <- FetchData(seurat_integrated, 
+                        vars = c("ident", "UMAP_1", "UMAP_2"))  %>%
+  group_by(ident) %>%
+  summarise(x=mean(UMAP_1), y=mean(UMAP_2))
+  
+# Plotting a UMAP plot for each of the PCs
+map(paste0("PC_", 1:16), function(pc){
+        ggplot(pc_data, 
+               aes(UMAP_1, UMAP_2)) +
+                geom_point(aes_string(color=pc), 
+                           alpha = 0.7) +
+                scale_color_gradient(guide = "none", 
+                                     low = "grey90", 
+                                     high = "blue")  +
+                geom_text(data=umap_label, 
+                          aes(label=ident, x, y)) +
+                ggtitle(pc)
+}) %>% 
+        plot_grid(plotlist = .)
+```
+
+```{r}
+print(seurat_integrated[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+```{r}
+# Segregation of clusters by other methods split by sample
+
+# Determine metrics to plot present in seurat_integrated@meta.data
+metrics <-  c("nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio")
+
+FeaturePlot(seurat_integrated, 
+            reduction = "umap", 
+            features = metrics,
+            pt.size = 0.4, 
+            sort.cell = TRUE,
+            min.cutoff = 'q10',
+            label = TRUE,
+            split.by = "sample")
+
+# mitoRatio may need to be adjusted based off of this
+```
+
+```{r}
+# Cluster the cells
+
+# Determine the K-nearest neighbor graph
+seurat_integrated <- FindNeighbors(object = seurat_integrated, 
+                                dims = 1:40)
+                                
+# Determine the clusters for various resolutions  
+# May need to increase resolution >1.4 for datasets larger than 3,000-5,000 
+seurat_integrated <- FindClusters(object = seurat_integrated,
+                               resolution = c(0.4, 0.6, 0.8, 1.0, 1.4))
+```
+
+```{r}
+# Explore resolutions in metadata to see if they appear
+seurat_integrated@meta.data %>% 
+        View()
+```
+
+```{r}
+# Assign identity of clusters
+# Start with a mid range value, so will begin with 0.8
+Idents(object = seurat_integrated) <- "integrated_snn_res.0.8"
+```
+
+```{r}
+# Plot the UMAP to visualize clusters (can also use tSNE)
+DimPlot(seurat_integrated,
+        reduction = "umap",
+        label = TRUE,
+        label.size = 6)
+```
+
+```{r}
+# Assign identity of clusters with lower resolution to check for clustering
+Idents(object = seurat_integrated) <- "integrated_snn_res.0.4"
+
+# Plot the UMAP
+DimPlot(seurat_integrated,
+        reduction = "umap",
+        label = TRUE,
+        label.size = 6)
+```
+```{r}
+#Identifying markers for each cluster
+Idents(filtered_seurat) <- "integrated_snn_res.0.4"
+markers <- FindAllMarkers(object = seurat_integrated, only.pos = TRUE, logfc.threshold = 0.25, max.cells.per.ident=500)
+markers %>% dplyr::group_by(cluster) %>% arrange(desc(avg_log2FC), .by_group=T) %>% slice(1:50) %>% write.csv(file = "/Users/celestediaz/Desktop/scRNA/integrated_snn_res.0.4.csv")
+
+```
+```{r}
+#rename
+new.cluster.ids <- c('Endothelial Cells', 'Tubule cells 1', 'Mast Cells', 'B Cells','T Cells', 'Tubule cells 2', 'Endothelial Progenitor', 'Eosinophil Cells', 'Tubule cells 3', 'Renal Collecting Duct', 'Dendritic Cells', 'Dendritic Cells 2', 'Macrophages', 'Monocytes', 'Fibroblasts', 'Granulocytes', 'NK Cells')
+
+names(new.cluster.ids) <- c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)
+tmp <- as.vector(seurat_integrated$integrated_snn_res.0.4)
+for(i in 1:length(new.cluster.ids)){
+  tmp[tmp==names(new.cluster.ids)[i]] <- new.cluster.ids[i]
+}
+seurat_integrated$celltype <- tmp
+Idents(seurat_integrated) <- 'celltype'
+p <- DimPlot(seurat_integrated, label = TRUE, label.size = 3)
+p
+```
+
+
+
+```{r}
+head(markers)
+tail(markers)
+```
+```{r}
+#adjust limits for allowable object size (for memory reasons)
+options(future.globals.maxSize = 4000 * 1024^2)
+```
+
+```{r}
+# Split seurat object by condition to perform cell cycle scoring and SCT on all samples
+split_seurat_T_Cell <- SplitObject(seurat_integrated_TCells, split.by = "sample")
+
+split_seurat <- split_seurat[c("Young", "Old")]
+
+for (i in 1:length(split_seurat_T_Cell)) {
+    split_seurat_T_Cell[[i]] <- NormalizeData(split_seurat_T_Cell[[i]], verbose = TRUE)
+    split_seurat_T_Cell[[i]] <- CellCycleScoring(split_seurat_T_Cell[[i]], g2m.features=g2m_genes, s.features=s_genes)
+    split_seurat_T_Cell[[i]] <- SCTransform(split_seurat_T_Cell[[i]], vars.to.regress = c("mitoRatio"))
+    }
+
+```
+
+
+```{r}
+#Integrate by T-cell subset data
+
+# Select the most variable features to use for integration (integrating by age)
+integ_features <- SelectIntegrationFeatures(object.list = split_seurat_T_Cell, 
+                                            nfeatures = 3000) 
+# Split T-cell subset data 
+split_seurat_T_Cell <- PrepSCTIntegration(object.list = split_seurat_T_Cell, 
+                                   anchor.features = integ_features)
+# Find best buddies - can take a while to run
+integ_anchors <- FindIntegrationAnchors(object.list = split_seurat_T_Cell, 
+                                        normalization.method = "SCT", 
+                                        anchor.features = integ_features)
+# Integrate across conditions
+seurat_integrated_T_Cell <- IntegrateData(anchorset = integ_anchors, 
+                                   normalization.method = "SCT")
+# Save integrated seurat object
+saveRDS(seurat_integrated_T_Cell, "results/seurat_integrated_T_Cell.rds")
+```
+
+```{r}
+#run PCA from integrated dataset of young and old
+seurat_integrated_T_Cell <- RunPCA(object = seurat_integrated_T_Cell)
+```
+
+
+```{r}
+# Plot PCA
+PCAPlot(seurat_integrated_T_Cell,
+        split.by = "sample") 
+```
+
+```{r}
+# Run UMAP for integrated dataset of young and old
+seurat_integrated_T_Cell <- RunUMAP(seurat_integrated_T_Cell, 
+                             dims = 1:40,
+			     reduction = "pca")
+
+# Plot UMAP                             
+DimPlot(seurat_integrated_T_Cell) 
+```
+
+
+
+```{r}
+DimPlot(seurat_integrated_T_Cell,
+        split.by = "sample") 
+```
+
+```{r}
+#identify significant PCs (metagenes)
+# Explore heatmap of PCs
+DimHeatmap(seurat_integrated_T_Cell, 
+           dims = 1:9, 
+           cells = 500, 
+           balanced = TRUE)
+```
+
+```{r}
+# Printing out the most variable genes driving PCs to see top 10 genes in T-cell subset
+print(x = seurat_integrated_T_Cell[["pca"]], 
+      dims = 1:10, 
+      nfeatures = 5)
+```
+
+```{r}
+# Plot the elbow plot to look at standard deviation of each PC to determine how many PCs to use for clustering (where it begins to plateu)
+# Where the elbow appears is usually the threshold for identifying the majority of the variation
+ElbowPlot(object = seurat_integrated_T_Cell, 
+          ndims = 40)
+```
+
+
+```{r}
+# Cluster the cells for T-cell subset dataset
+
+# Determine the K-nearest neighbor graph
+seurat_integrated_T_Cell <- FindNeighbors(object = seurat_integrated_T_Cell, 
+                                dims = 1:40)
+                                
+# Determine the clusters for various resolutions  
+# May need to increase resolution >1.4 for datasets larger than 3,000-5,000 
+seurat_integrated_T_Cell <- FindClusters(object = seurat_integrated_T_Cell,
+                               resolution = c(0.4, 0.6, 0.8, 1.0, 1.4))
+```
+
+```{r}
+# Explore resolutions in metadata to see if they appear
+seurat_integrated_T_Cell@meta.data %>% 
+        View()
+```
+
+
+```{r}
+# Assign identity of clusters
+# Start with a mid range value, so will begin with 0.4
+Idents(object = seurat_integrated_T_Cell) <- "integrated_snn_res.0.4"
+```
+
+```{r}
+# Plot the UMAP to visualize clusters (can also use tSNE)
+DimPlot(seurat_integrated_T_Cell,
+        reduction = "umap",
+        label = TRUE,
+        label.size = 6)
+```
+
+
+```{r}
+#Identifying markers for each cluster
+Idents(filtered_seurat) <- "integrated_snn_res.0.4"
+markers <- FindAllMarkers(object = seurat_integrated_T_Cell, only.pos = TRUE, logfc.threshold = 0.25, max.cells.per.ident=500)
+markers %>% dplyr::group_by(cluster) %>% arrange(desc(avg_log2FC), .by_group=T) %>% slice(1:50) %>% write.csv(file = "/Users/celestediaz/Desktop/scRNA/integrated_snn_res.0.4_tcell.csv")
+
+```
+
+```{r}
+head(markers)
+tail(markers)
+```
+
+
+```{r}
+#rename
+new.cluster.ids_T_cell <- c('CD4+ Tregs', 'CD8+ T-cells', 'Non-effector memory cells', 'Invariant NK T-cells','Naive T-cells', 'T helper cells')
+
+names(new.cluster.ids_T_cell) <- c(0,1,2,3,4,5)
+tmp <- as.vector(seurat_integrated_T_Cell$integrated_snn_res.0.4)
+for(i in 1:length(new.cluster.ids)){
+  tmp[tmp==names(new.cluster.ids)[i]] <- new.cluster.ids[i]
+}
+seurat_integrated_T_Cell$celltype <- tmp
+Idents(seurat_integrated_T_Cell) <- 'celltype'
+p <- DimPlot(seurat_integrated_T_Cell, label = TRUE, label.size = 4.0)
+p
+```
+
+```{r}
+#GSEA Analysis
+for(ct in new.cluster.ids_T_cell){
+  print(paste0('process...', ct))
+  tscrna <- subset(seurat_integrated_T_Cell, idents=ct)
+    Idents(tscrna) <- "sample"
+    markers <- FindAllMarkers(object = tscrna, only.pos = T, logfc.threshold = 0.25, max.cells.per.ident=2000)
+    markers %>% dplyr::group_by(cluster) %>% arrange(desc(avg_log2FC), .by_group=T) %>%
+    write.csv(file = paste0("/Users/celestediaz/Desktop/scRNA/results2/", ct, "_all_gene.csv"))
+}
+organism = "org.Mm.eg.db"
+library(organism, character.only = TRUE)
+organism = "org.Mm.eg.db"
+library(organism, character.only = TRUE)
+```
+
+
+```{r}
+library(AnnotationFilter)
+library(clusterProfiler)
+library(DOSE)
+library(enrichplot)
+
+# GSEA plotting
+for (ct in new.cluster.ids_T_cell){
+  DE_genelist <- read_csv(file = paste0("/Users/celestediaz/Desktop/scRNA/results/", ct, "_all_gene.csv"))
+  Original_gene_list <- DE_genelist$avg_log2FC
+  Genenames <- DE_genelist$gene
+  names(Original_gene_list) <- Genenames
+  Gene_list<-na.omit(Original_gene_list)
+  Gene_list = sort(abs(Gene_list), decreasing = TRUE)
+  gse <- gseGO(geneList=Gene_list, ont ="ALL", keyType = "SYMBOL", nPerm = 1000, minGSSize = 3, maxGSSize = 800, pvalueCutoff = 0.05, verbose = TRUE, OrgDb = organism, pAdjustMethod = "none")
+  require(DOSE)
+  p<- dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
+  plot(p)
+}
+```
+
+```{r}
+# stacked bar graph to look at immune cell composition changes across young and old
+seurat_integrated_T_Cell %>%
+  	ggplot(aes(x=sample, fill=celltype)) + 
+  	geom_bar(position="fill") +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("T-cell Subtype Composition of Old and Young Kidneys")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#ignore everything below 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
