@@ -1,1 +1,2 @@
 # STEMREM205_Final_Project
+The association of exercise with reduction of age-associated pathologies is well known.  In an effort to elucidate some of the molecular mechanisms underlying this association and identify similarities in the transcriptional profiles of young and exercised mice, we performed bulk RNA-seq analysis of peripheral blood T cells and single-cell RNA-seq analysis of resident immune cells from old and young mice cohorts, as well as single-cell RNA-seq analysis of peripheral immune cells from sedentary and exercised mice cohorts.
